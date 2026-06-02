@@ -36,11 +36,24 @@ user:
 
 ## Workflow
 
-### 1. Locate the export
+> **Output goes to Google Cloud Storage — always.** This skill runs in environments like
+> the Gemini Enterprise App that have no durable local filesystem, so a local-only folder
+> would be lost. You MUST ask the user for a `gs://bucket/path/` destination up front
+> (step 1) and the finished skill MUST be bundled and uploaded there (step 7). The local
+> `converted-skills/<name>/` folder is only a temporary staging area for building files
+> before upload — never treat it as the final deliverable, and never silently default to
+> writing only a local directory.
+
+### 1. Get the GCS destination (ask first, always)
+Before anything else, ask the user for the Google Cloud Storage destination where the
+finished skill(s) should be written, as a `gs://bucket/path/` URI. Do not proceed without
+it, and do not substitute a local directory. Keep this value for step 7.
+
+### 2. Locate the export
 Ask the user for the path to their Takeout export, or scan for `gemini_gems_data.html`.
 The sibling `gemini_scheduled_actions_data.html` is unrelated and can be ignored.
 
-### 2. Parse it
+### 3. Parse it
 Run the deterministic parser (stdlib-only Python, no dependencies):
 
 ```bash
@@ -53,20 +66,20 @@ This emits each gem with its files and a **tier** computed from the file hosts:
 `no_data` (no files), `gdrive` (Google Drive knowledge — includes the extracted
 `drive_id`), or `other` (any other host, out of scope for v1).
 
-### 3. Let the user select (point a)
+### 4. Let the user select (point a)
 Show the gem list with tier badges and file counts. Ask **which gems** to convert. Don't
 assume "all".
 
-### 4. Disclose limitations for the selection (point b)
+### 5. Disclose limitations for the selection (point b)
 Based on the tiers of the selected gems, tell the user what to expect:
 - `no_data` → clean, fully automatic conversion.
-- `gdrive` → the agent will read the Drive file(s) directly; if it lacks access it will
-  ask the user to grant Drive access.
+- `gdrive` → the agent reads the Drive file(s) automatically via its native Drive access
+  (no upload needed); it only asks the user to grant access if a read is actually denied.
 - `other` → not supported automatically in v1; the user can skip it or place the file
   manually.
 Always mention the tools-not-exported limitation for any gem whose instructions imply a tool.
 
-### 5. Convert each selected gem
+### 6. Convert each selected gem
 For each gem, in order:
 
 a. **Confirm name + description (point d).** Default the name to the gem's name in
@@ -75,23 +88,25 @@ a. **Confirm name + description (point d).** Default the name to the gem's name 
    writing** — the description is the routing key, so this step is mandatory.
 
 b. **Read knowledge and decide placement (point c)** following
-   `references/tier-handling.md`. For `gdrive` files, read the document via the available
-   Drive access (connector → browser); if you can't reach it, **ask the user to grant
-   access** and retry; never fail silently. Then decide where the content belongs (inline
-   in the body, `references/`, or `assets/`) using the "Deciding where knowledge goes"
-   section of `conversion-guide.md`.
+   `references/tier-handling.md`. For `gdrive` files, **fetch and read the document
+   automatically** using its `drive_id` via the agent's native Drive access — do not ask
+   the user to upload or download it. Only ask the user to grant access if a read actually
+   fails with a permission error. Then decide where the content belongs (inline in the
+   body, `references/`, or `assets/`) using the "Deciding where knowledge goes" section of
+   `conversion-guide.md`.
 
 c. **Transform** the persona instructions into an operational skill body (role line +
    imperative instructions + pointers to bundled knowledge), per `conversion-guide.md`.
 
-d. **Write the skill folder** using `assets/skill-template/SKILL.md.tmpl`, into
-   `converted-skills/<skill-name>/` (confirm the output location with the user). Place
-   content where you decided in step (b). Validate against `references/skill-format.md`.
+d. **Stage the skill folder** using `assets/skill-template/SKILL.md.tmpl`, into the
+   temporary staging area `converted-skills/<skill-name>/`. Place content where you decided
+   in step (b). Validate against `references/skill-format.md`. This local folder is staging
+   only — the deliverable is the GCS upload in step 7.
 
-### 6. Bundle and upload to Google Cloud Storage (optional)
-If the user wants the finished skill stored in Google Cloud Storage, ask them for the
-destination as a `gs://bucket/path/` URI, then bundle and upload it (this runs in the
-agent's code sandbox):
+### 7. Bundle and upload to Google Cloud Storage (required)
+This step is mandatory — it is how the skill is actually delivered. Using the
+`gs://bucket/path/` destination collected in step 1, bundle and upload each finished skill
+(this runs in the agent's code sandbox):
 
 ```bash
 python3 scripts/bundle_to_gcs.py converted-skills/<skill-name> --dest gs://<bucket>/<path>/
@@ -101,11 +116,12 @@ The script zips the skill folder (keeping the folder as the archive's top-level 
 validates the `gs://` path, and uploads — trying the `google-cloud-storage` library first,
 then the `gcloud`/`gsutil` CLI. Use `--ext skill` to name the bundle `<name>.skill`. If the
 upload fails for lack of credentials, tell the user to authenticate the sandbox
-(Application Default Credentials or a service account) and retry.
+(Application Default Credentials or a service account) and retry — do not consider the skill
+delivered until the upload succeeds.
 
-### 7. Summarize and offer handoff
+### 8. Summarize and offer handoff
 Report per gem: converted cleanly, or needs follow-up (un-read Drive knowledge, `other`-tier
-files, unconfirmed tools), plus the final `gs://` location if uploaded. If the
+files, unconfirmed tools), plus the final `gs://` location of each uploaded skill. If the
 `skill-creator` skill is available in the environment, offer to hand off the new skills to
 it for evaluation and iteration — but this skill is fully standalone and does not require it.
 

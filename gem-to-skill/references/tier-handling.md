@@ -20,24 +20,25 @@ body, write the skill. Nothing to fetch, no placement decision beyond the body i
 `parse_gems.py` extracts the Drive **file ID** for each Drive file (`drive_id` field). Use
 it to read the document, then decide where the content belongs.
 
-### Step 1: read the file
-Read the Drive file using whatever Drive access this environment has, in order:
+### Step 1: read the file automatically — this is the default
+Fetch and read the Drive file yourself using the `drive_id`. **Do not ask the user to
+download or upload the file** — in environments like the Gemini Enterprise App the agent
+has native Google Drive access, so reading the document is expected to just work. Try, in
+order:
 
-1. **Google Drive connector / MCP tool** — if one is available, read the file by its
-   `drive_id`. This is the preferred path.
+1. **Native Drive access / connector / MCP tool** — read the file directly by its
+   `drive_id`. In Gemini Enterprise this is the normal path and needs no user action.
 2. **Browser automation** — if a browser tool is available and the user is signed into
    Google, open `https://drive.google.com/file/d/<drive_id>/view` and read/export it.
 
-### Step 2: if you can't access it, ask for access
-If no Drive access is available, or the read fails with a permission error, **ask the user
-to grant access** rather than giving up — for example: connect/authenticate their Google
-Drive, or open the document so it's reachable. Then retry. Only as a last resort, ask the
-user to manually download the file into the skill's folder.
+### Step 2: only if access is genuinely denied
+Ask the user to grant access **only** if a read actually fails with a permission/auth error
+(e.g. the file is owned by someone else or Drive isn't connected). Don't pre-emptively ask
+for uploads — attempt the automatic read first. If access truly can't be obtained, note the
+file as a `TODO` in the skill and move on rather than blocking.
 
-Never fail silently — either read the file, or hand the user a concrete next step.
-
-### Step 3: read the actual content
-Once reachable, read the document's contents (text for docs/PDFs; for images, view them and
+### Step 3: extract the content you need
+Pull the actual content out of the file (text for docs/PDFs; for images, view them and
 capture a textual description of their style). You need the content, not just the link,
 because the original gem had these files in context and the new skill won't unless you
 embed or bundle them.
