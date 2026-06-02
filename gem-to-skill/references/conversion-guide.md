@@ -63,6 +63,34 @@ Transform the persona-instructions into operational guidance:
 4. **Explain the why** where it helps the model generalize, rather than rigid MUST/NEVER
    rules.
 
+## Deciding where knowledge goes
+
+When a gem has Google Drive knowledge and you've read its content (see
+`tier-handling.md`), decide where to put it. Skills use **progressive disclosure** — three
+loading levels, cheapest first — so place content at the level that matches how often it's
+needed:
+
+1. **`SKILL.md` body (always loaded when the skill triggers).** Put small, always-relevant
+   knowledge here: a short policy, a handful of key facts, a compact rubric. Keep the body
+   focused — if it starts ballooning, push detail down a level.
+2. **`references/` (loaded only when needed).** Put larger documents here — a multi-page
+   PDF, a long handbook — and point to them from the body
+   ("Base answers on `references/<file>`; if it's not covered there, say so."). This keeps
+   the skill cheap to load while still grounding it.
+3. **`assets/` (used in output, not read as prose).** Put style-reference images and
+   templates here. For images, also embed a short textual style description in the body so
+   the skill still works on models that can't view images at generation time.
+
+Rules of thumb:
+- A few sentences of facts → inline in the body.
+- More than roughly a page, or content only some queries need → `references/` with a pointer.
+- Binary/visual assets → `assets/`.
+- Don't paste a whole PDF into the body; that defeats progressive disclosure and makes the
+  skill expensive to load every time.
+
+Every file you reference in the body must actually exist in the skill folder (or be flagged
+as a `TODO` if it couldn't be obtained).
+
 ## Always confirm with the user before writing
 
 Show the proposed **name** and **description** for each gem and let the user edit them. The

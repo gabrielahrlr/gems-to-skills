@@ -12,8 +12,14 @@ repeating block per gem:
 
 This script turns that into `gems.json`: a list of gems, each with its name,
 instructions, and a classified list of knowledge files. Classification is purely
-deterministic (host + file extension), so no model guessing is needed to decide
-how hard a gem is to convert.
+deterministic (from the link host), so no model guessing is needed.
+
+v1 supports exactly two cases, by design:
+  * `no_data`  — the gem has no knowledge files (instructions only).
+  * `gdrive`   — the gem's knowledge lives in Google Drive; the file ID is
+                 extracted so the agent can read it directly (asking the user to
+                 grant Drive access if needed).
+Any other link host is labelled `other` and flagged as out of scope for v1.
 
 Stdlib only — runs under any Python 3, no third-party deps. That keeps the whole
 meta-skill portable across runtimes and models.
@@ -32,47 +38,51 @@ import sys
 from urllib.parse import urlparse, parse_qs
 
 # --- Tier definitions -------------------------------------------------------
-# A gem's difficulty is the hardest tier among its files (or "simple" if none).
-TIER_SIMPLE = "simple"               # instructions only, no knowledge files
-TIER_DIRECT = "direct_download"      # public link, fetchable with curl
-TIER_DRIVE = "drive_doc"             # Google Drive doc, needs auth/connector
-TIER_IMAGE = "image_knowledge"       # image used as style reference (hardest)
+# A gem's tier is the "most involved" tier among its files (gdrive > other),
+# or no_data when it has none.
+TIER_NONE = "no_data"     # instructions only, nothing to fetch
+TIER_GDRIVE = "gdrive"    # knowledge in Google Drive; agent reads it via Drive
+TIER_OTHER = "other"      # any other host (out of scope for v1)
 
-# Ordering so we can pick the "hardest" tier for a gem.
-TIER_RANK = {TIER_SIMPLE: 0, TIER_DIRECT: 1, TIER_DRIVE: 2, TIER_IMAGE: 3}
+# Ordering so a gem with mixed files reports the most involved tier.
+TIER_RANK = {TIER_NONE: 0, TIER_OTHER: 1, TIER_GDRIVE: 2}
 
-IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".svg"}
+# Hosts that are Google Drive (file IDs are extractable and readable via Drive).
+DRIVE_HOSTS = ("drive.google.com",)
 
-# Hosts that serve a direct, unauthenticated download (Takeout's own blob export).
-DIRECT_HOSTS = ("contribution.usercontent.google.com",)
+# Patterns that yield a Drive file ID from a Drive URL.
+_DRIVE_ID_PATTERNS = (
+    re.compile(r"/file/d/([A-Za-z0-9_-]+)"),   # /file/d/<id>/view
+    re.compile(r"[?&]id=([A-Za-z0-9_-]+)"),    # open?id=<id>
+    re.compile(r"/d/([A-Za-z0-9_-]+)"),        # /d/<id>...
+)
 
 
 def _ext(filename: str) -> str:
     return os.path.splitext(filename or "")[1].lower()
 
 
-def classify_file(url: str, filename: str) -> str:
-    """Decide the tier of a single knowledge file from its host + extension."""
+def extract_drive_id(url: str):
+    """Return the Google Drive file ID from a Drive URL, or None."""
+    for pat in _DRIVE_ID_PATTERNS:
+        m = pat.search(url)
+        if m:
+            return m.group(1)
+    return None
+
+
+def classify_file(url: str):
+    """Decide the tier of a single file. Returns (tier, drive_id_or_None)."""
     host = (urlparse(url).hostname or "").lower()
-    ext = _ext(filename)
-
-    # Direct download blobs from the Takeout export itself.
-    if any(host.endswith(h) for h in DIRECT_HOSTS):
-        # Even a direct image is fetchable, but its *use* is still as style
-        # reference, so flag images as image_knowledge regardless of host.
-        return TIER_IMAGE if ext in IMAGE_EXTS else TIER_DIRECT
-
-    # Anything else (Drive, Photos, googleusercontent thumbnails): images are
-    # the hardest case (style references), other docs need a Drive connector.
-    if ext in IMAGE_EXTS:
-        return TIER_IMAGE
-    return TIER_DRIVE
+    if any(host == h or host.endswith("." + h) for h in DRIVE_HOSTS):
+        return TIER_GDRIVE, extract_drive_id(url)
+    return TIER_OTHER, None
 
 
 def gem_tier(files: list) -> str:
-    """A gem is as hard as its hardest file; instructions-only is simple."""
+    """Most involved tier among a gem's files; no_data when it has none."""
     if not files:
-        return TIER_SIMPLE
+        return TIER_NONE
     return max((f["tier"] for f in files), key=lambda t: TIER_RANK[t])
 
 
@@ -109,11 +119,13 @@ def parse_html(text: str) -> list:
             url = html.unescape(url).strip()
             filename = _strip_tags(label) or _filename_from_url(url)
             host = (urlparse(url).hostname or "").lower()
+            tier, drive_id = classify_file(url)
             files.append({
                 "filename": filename,
                 "url": url,
                 "host": host,
-                "tier": classify_file(url, filename),
+                "tier": tier,
+                "drive_id": drive_id,
             })
 
         gems.append({

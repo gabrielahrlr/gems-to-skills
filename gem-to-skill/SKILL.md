@@ -24,9 +24,11 @@ user:
 1. **Tools are not exported.** There is no record of which tools a gem used (search, code,
    image generation, connectors). These cannot be inferred and must be confirmed with the
    user where the instructions imply a capability.
-2. **Knowledge files vary in reachability** by link type — some download directly, some need
-   Google Drive access, image "style" knowledge degrades in fidelity. See
-   `references/tier-handling.md`.
+2. **Knowledge files: v1 supports two cases** — gems with **no data** (instructions only)
+   and gems whose knowledge is in **Google Drive**. For Drive files, the agent reads the
+   document directly (asking the user to grant Drive access if needed) and then decides
+   where to place the content. Any other link host is out of scope for v1 and is flagged
+   for the user. See `references/tier-handling.md`.
 3. **Gems have no description** — only persona instructions. You must synthesize the
    skill's `description`, which is what makes it trigger correctly.
 4. **The export is all-or-nothing** — it contains every gem; the user selects which to
@@ -47,8 +49,9 @@ python3 scripts/parse_gems.py <path-to-export-or-dir> -o gems.json
 python3 scripts/parse_gems.py <path> --pretty
 ```
 
-This emits each gem with its files and a **tier** (`simple`, `direct_download`,
-`drive_doc`, `image_knowledge`) computed from the file hosts/extensions.
+This emits each gem with its files and a **tier** computed from the file hosts:
+`no_data` (no files), `gdrive` (Google Drive knowledge — includes the extracted
+`drive_id`), or `other` (any other host, out of scope for v1).
 
 ### 3. Let the user select (point a)
 Show the gem list with tier badges and file counts. Ask **which gems** to convert. Don't
@@ -56,10 +59,11 @@ assume "all".
 
 ### 4. Disclose limitations for the selection (point b)
 Based on the tiers of the selected gems, tell the user what to expect:
-- `simple` → clean, fully automatic conversion.
-- `direct_download` → knowledge file will be fetched automatically.
-- `drive_doc` → needs a Drive connector or a manual download step.
-- `image_knowledge` → image fetch attempted, but visual-style fidelity is limited.
+- `no_data` → clean, fully automatic conversion.
+- `gdrive` → the agent will read the Drive file(s) directly; if it lacks access it will
+  ask the user to grant Drive access.
+- `other` → not supported automatically in v1; the user can skip it or place the file
+  manually.
 Always mention the tools-not-exported limitation for any gem whose instructions imply a tool.
 
 ### 5. Convert each selected gem
@@ -70,23 +74,40 @@ a. **Confirm name + description (point d).** Default the name to the gem's name 
    `references/conversion-guide.md`. **Show both to the user and let them edit before
    writing** — the description is the routing key, so this step is mandatory.
 
-b. **Fetch knowledge by tier (point c)** following `references/tier-handling.md`. Fetch
-   directly when possible; otherwise use an available connector/browser; otherwise give the
-   user explicit manual-download instructions and pause. Never fail silently.
+b. **Read knowledge and decide placement (point c)** following
+   `references/tier-handling.md`. For `gdrive` files, read the document via the available
+   Drive access (connector → browser); if you can't reach it, **ask the user to grant
+   access** and retry; never fail silently. Then decide where the content belongs (inline
+   in the body, `references/`, or `assets/`) using the "Deciding where knowledge goes"
+   section of `conversion-guide.md`.
 
 c. **Transform** the persona instructions into an operational skill body (role line +
    imperative instructions + pointers to bundled knowledge), per `conversion-guide.md`.
 
 d. **Write the skill folder** using `assets/skill-template/SKILL.md.tmpl`, into
    `converted-skills/<skill-name>/` (confirm the output location with the user). Place
-   fetched docs in `references/` and style images in `assets/`. Validate against
-   `references/skill-format.md`.
+   content where you decided in step (b). Validate against `references/skill-format.md`.
 
-### 6. Summarize and offer handoff
-Report per gem: converted cleanly, or needs follow-up (un-fetched Drive/image knowledge,
-unconfirmed tools). If the `skill-creator` skill is available in the environment, offer to
-hand off the new skills to it for evaluation and iteration — but this skill is fully
-standalone and does not require it.
+### 6. Bundle and upload to Google Cloud Storage (optional)
+If the user wants the finished skill stored in Google Cloud Storage, ask them for the
+destination as a `gs://bucket/path/` URI, then bundle and upload it (this runs in the
+agent's code sandbox):
+
+```bash
+python3 scripts/bundle_to_gcs.py converted-skills/<skill-name> --dest gs://<bucket>/<path>/
+```
+
+The script zips the skill folder (keeping the folder as the archive's top-level entry),
+validates the `gs://` path, and uploads — trying the `google-cloud-storage` library first,
+then the `gcloud`/`gsutil` CLI. Use `--ext skill` to name the bundle `<name>.skill`. If the
+upload fails for lack of credentials, tell the user to authenticate the sandbox
+(Application Default Credentials or a service account) and retry.
+
+### 7. Summarize and offer handoff
+Report per gem: converted cleanly, or needs follow-up (un-read Drive knowledge, `other`-tier
+files, unconfirmed tools), plus the final `gs://` location if uploaded. If the
+`skill-creator` skill is available in the environment, offer to hand off the new skills to
+it for evaluation and iteration — but this skill is fully standalone and does not require it.
 
 ## Reference files
 
@@ -96,3 +117,4 @@ standalone and does not require it.
 - `references/skill-format.md` — the portable skill folder format + validity check.
 - `assets/skill-template/SKILL.md.tmpl` — template for generated skills.
 - `scripts/parse_gems.py` — the deterministic Takeout parser.
+- `scripts/bundle_to_gcs.py` — bundle a finished skill folder and upload it to GCS.
