@@ -20,35 +20,43 @@ body, write the skill. Nothing to fetch, no placement decision beyond the body i
 `parse_gems.py` extracts the Drive **file ID** for each Drive file (`drive_id` field). Use
 it to read the document, then decide where the content belongs.
 
-### Step 1: read the file automatically — this is the default
-Fetch and read the Drive file yourself using the `drive_id`. **Do not ask the user to
-download or upload the file** — in environments like the Gemini Enterprise App the agent
-has native Google Drive access, so reading the document is expected to just work. Try, in
-order:
+Each Drive file in `gems.json` has two things you can search on: a `drive_id` (extracted
+from the exported link) and a `filename` (the display name, e.g. "Employee Onboarding
+Process.pdf"). Use both — the link is frequently stale, but the file usually still lives in
+the user's Drive under its name.
 
-1. **Native Drive access / connector / MCP tool** — read the file directly by its
-   `drive_id`. In Gemini Enterprise this is the normal path and needs no user action.
-2. **Browser automation** — if a browser tool is available and the user is signed into
-   Google, open `https://drive.google.com/file/d/<drive_id>/view` and read/export it.
+### Step 1: find and read the file yourself — this is the default
+**Do not ask the user to download, upload, or attach the file.** You have the user's Drive
+connected; locate and read the document with your Drive tools. Try, in order, until one
+works:
 
-### Step 2: only if access is genuinely denied
-Ask the user to grant access **only** if a read actually fails with a permission/auth error
-(e.g. the file is owned by someone else or Drive isn't connected). Don't pre-emptively ask
-for uploads — attempt the automatic read first. If access truly can't be obtained, note the
-file as a `TODO` in the skill and move on rather than blocking.
+1. **Open by ID** — read the file directly by its `drive_id`.
+2. **Search by filename** — search the user's Drive for a file matching `filename` and read
+   the best match. Do this whenever the ID lookup fails or returns nothing; in practice the
+   same-named document is almost always present in the user's Drive.
+3. **Browser automation** (only if available) — open
+   `https://drive.google.com/file/d/<drive_id>/view` and read/export it.
 
-### Step 3: extract the content you need
-Pull the actual content out of the file (text for docs/PDFs; for images, view them and
-capture a textual description of their style). You need the content, not just the link,
-because the original gem had these files in context and the new skill won't unless you
-embed or bundle them.
+### Step 2: only if every method genuinely fails
+If the ID lookup, the filename search, and any browser path all fail (e.g. the file is owned
+by someone else and not shared, or truly doesn't exist), only then tell the user, note the
+file as a `TODO` in the skill body, and move on. Do not block the whole conversion, and do
+not fall back to "please put the file under references/".
+
+### Step 3: extract the content and convert it to Markdown
+Pull the text out of the document and write it as a clean **Markdown** file at
+`references/<filename>.md` (drop the original extension, e.g.
+`employee-onboarding-process.pdf` → `references/employee-onboarding-process.md`). This is a
+core "good skill" principle: a skill's knowledge should be readable text the model can load,
+not a raw binary. Preserve structure (headings, lists, tables) as Markdown. For images, view
+them and capture a textual style description instead of text.
 
 ### Step 4: decide where to place it
 This is a real decision, guided by the Agent Skills progressive-disclosure model — see the
 "Deciding where knowledge goes" section in `conversion-guide.md`. In short:
 
 - **Small / always-needed** (a short policy, a few facts) → fold directly into `SKILL.md`.
-- **Larger reference material** (a multi-page PDF, a long doc) → save under `references/`
+- **Larger reference material** (a multi-page doc) → keep the `references/<filename>.md` file
   and point to it from `SKILL.md`, so it's loaded only when needed.
 - **Images used as style references** → save under `assets/`, and also embed a textual
   style description in the body so the skill degrades gracefully on models that can't see

@@ -73,10 +73,11 @@ needed:
 1. **`SKILL.md` body (always loaded when the skill triggers).** Put small, always-relevant
    knowledge here: a short policy, a handful of key facts, a compact rubric. Keep the body
    focused — if it starts ballooning, push detail down a level.
-2. **`references/` (loaded only when needed).** Put larger documents here — a multi-page
-   PDF, a long handbook — and point to them from the body
-   ("Base answers on `references/<file>`; if it's not covered there, say so."). This keeps
-   the skill cheap to load while still grounding it.
+2. **`references/` (loaded only when needed).** Put larger documents here as **Markdown**
+   files (extract the text from the source doc — don't drop a raw PDF), e.g.
+   `references/employee-onboarding-process.md`, and point to them from the body
+   ("Base answers on `references/employee-onboarding-process.md`; if it's not covered there,
+   say so."). Markdown keeps the knowledge readable to the model and the skill cheap to load.
 3. **`assets/` (used in output, not read as prose).** Put style-reference images and
    templates here. For images, also embed a short textual style description in the body so
    the skill still works on models that can't view images at generation time.
