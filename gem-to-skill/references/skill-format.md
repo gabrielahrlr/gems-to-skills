@@ -9,7 +9,7 @@ format and works with any model/runtime that supports skills.
 ```
 <skill-name>/
 ├── SKILL.md          (required)
-├── references/       (optional — docs/knowledge loaded as needed, e.g. fetched PDFs)
+├── references/       (optional — knowledge as Markdown, loaded as needed)
 ├── scripts/          (optional — executable helpers)
 └── assets/           (optional — files used in output, e.g. style-reference images)
 ```

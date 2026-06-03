@@ -1,0 +1,33 @@
+{
+  "skill_name": "gem-to-skill",
+  "evals": [
+    {
+      "id": 1,
+      "name": "lists-gems-and-asks-not-oneshot",
+      "prompt": "i exported my gemini gems with google takeout, the file is in Takeout/Gemini/gemini_gems_data.html. can you help me move some of them over to skills?",
+      "expected_output": "Parses the export (script or by hand) and lists the 4 gems with their tiers (hr-onboarding-drive=gdrive, hr-onboarding-local=other, create-images-loca-files=gdrive, create-images-for-ads=other), then ASKS which gems to convert and STOPS. Must NOT generate any SKILL.md or finished skills in this first turn.",
+      "files": ["Takeout/Gemini/gemini_gems_data.html"]
+    },
+    {
+      "id": 2,
+      "name": "gdrive-fetch-to-markdown-and-write-to-drive",
+      "prompt": "Just convert the hr-onboarding-drive gem for now.",
+      "expected_output": "Proposes a kebab-case name and a trigger-oriented description and asks the user to confirm before writing. Locates the Drive doc 'Employee Onboarding Process.pdf' itself (by drive_id and/or by filename search) and writes its text as references/employee-onboarding-process.md (Markdown, not a raw PDF). Produces a SKILL.md with YAML frontmatter (name + description), creates the files in the user's Google Drive, and returns the Drive link. Must NOT ask the user to upload, paste, or place the file, and must NOT use '# Skill:' / '## Description' headings.",
+      "files": ["Takeout/Gemini/gemini_gems_data.html"]
+    },
+    {
+      "id": 3,
+      "name": "other-tier-and-limitations-disclosure",
+      "prompt": "turn create-images-for-ads into a skill",
+      "expected_output": "Synthesizes name + description from the persona and asks the user to confirm. Discloses the limitations relevant to this gem: its image knowledge is 'other' tier (Photos/lh3 links) and out of scope for automatic fetch, and that the gem's tools (image generation) were not exported and will rely on the host model. Still produces a valid instructions-based skill (YAML frontmatter) written to the user's Drive, flagging the un-fetched images rather than failing.",
+      "files": ["Takeout/Gemini/gemini_gems_data.html"]
+    },
+    {
+      "id": 4,
+      "name": "convert-all-still-confirms-per-gem",
+      "prompt": "ok convert all of them please",
+      "expected_output": "Even when asked for all gems, does not silently one-shot: confirms each skill's name + description, fetches gdrive knowledge into Markdown references, handles 'other'-tier files gracefully with a TODO/flag, writes every skill into the user's Drive, and returns the links. Surfaces a per-gem summary of what converted cleanly vs. what needs follow-up.",
+      "files": ["Takeout/Gemini/gemini_gems_data.html"]
+    }
+  ]
+}

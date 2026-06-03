@@ -9,6 +9,27 @@ This is a **meta-skill**: it produces other skills. It converts Gemini Gems expo
 Google Takeout into the portable Agent Skills format, one gem at a time, with the user
 confirming the routing-critical name and description for each.
 
+## Read this first: how this skill behaves
+
+This is an **interactive, multi-turn process** — not a single batch job. The reason is that
+the two highest-value decisions (which gems to convert, and what each skill's name and
+description should be) belong to the user, and a skill's `description` is what determines
+whether it ever fires later. Getting those wrong silently makes the output useless, so the
+workflow deliberately pauses for the user at three points: after listing the gems (which to
+convert), and before writing each skill (confirm its name + description). Work through the
+numbered steps below in order and wait for the user's reply at those gates rather than
+producing finished skills up front.
+
+Two things commonly go wrong; both come from skipping a tool you actually have:
+
+- **You read the source documents and write the output yourself, using your Google Drive
+  tools.** The user's Drive is connected, so the knowledge files are reachable — find them
+  (by ID and by filename) and read them. Asking the user to upload a file, paste its
+  contents, or "add it to references/" means you skipped the Drive read; the same goes for
+  ending the task by printing files in chat instead of creating them in the user's Drive.
+- **The generated `SKILL.md` uses YAML frontmatter** (`---` / `name:` / `description:` /
+  `---`), not invented `# Skill:` / `## Description` headings — see the format in step 6d.
+
 A Gem and a Skill look similar but differ in one crucial way: a Gem's `Instructions` are a
 *persona* and the user picks the gem manually, whereas a Skill's `description` is a
 *trigger* that the model uses to auto-select the skill. The main work here is synthesizing
@@ -35,34 +56,14 @@ user:
 4. **The export is all-or-nothing** — it contains every gem; the user selects which to
    convert here.
 
-## Operating environment: use your Google Drive tools
-
-You are running in the Gemini Enterprise App with the user's Google Drive already
-connected (OAuth is done). **Google Drive is both your input source and your output
-destination, and you must use your Drive tools to do the work yourself.** Two hard rules
-that you must not violate, because breaking them is the most common failure of this skill:
-
-- **Never ask the user to upload, download, attach, or "place a file under references/".**
-  The source documents are already in the user's Drive — find and read them yourself. The
-  output skill must be created in the user's Drive by you, not handed back as instructions.
-- **Do the Drive reads and writes with your own Drive tools.** Searching Drive by filename,
-  opening a file by its ID, extracting its text, creating folders, and uploading files are
-  all things you can do directly. If a specific read fails, try the alternative methods in
-  `references/tier-handling.md` before ever involving the user.
-
-If you find yourself about to write a message that asks the user to provide a file or to
-move the output somewhere themselves, stop — that means you skipped a Drive tool you should
-have used.
-
 ## Workflow
 
-> **Output goes to the user's Google Drive — always.** This skill runs in environments
-> like the Gemini Enterprise App that have no durable local filesystem, so a local-only
-> folder would be lost. The finished skill MUST be written into a folder in the user's
-> Google Drive and the **Drive link returned to the user** (step 7). The local
-> `converted-skills/<name>/` folder is only a temporary staging area for building files
-> before upload — never treat it as the final deliverable, and never silently default to
-> writing only a local directory.
+This skill is designed for a runtime where the user's Google Drive is connected (e.g. the
+Gemini Enterprise App). These environments often have no durable local filesystem, so the
+local `converted-skills/<name>/` folder is only a scratch space for assembling files — the
+real deliverable is the skill created in the user's Drive (step 7). Drive is both your input
+(reading gem knowledge) and your output (writing the skill), and you do that work with your
+own Drive tools, as explained above.
 
 ### 1. Confirm the Drive destination
 Decide where in the user's Google Drive the finished skill(s) should go. Default to
@@ -74,7 +75,7 @@ Ask the user for the path to their Takeout export, or scan for `gemini_gems_data
 The sibling `gemini_scheduled_actions_data.html` is unrelated and can be ignored.
 
 ### 3. Parse it
-Run the deterministic parser (stdlib-only Python, no dependencies):
+Preferred: run the deterministic parser (stdlib-only Python, no dependencies):
 
 ```bash
 python3 scripts/parse_gems.py <path-to-export-or-dir> -o gems.json
@@ -82,9 +83,15 @@ python3 scripts/parse_gems.py <path-to-export-or-dir> -o gems.json
 python3 scripts/parse_gems.py <path> --pretty
 ```
 
-This emits each gem with its files and a **tier** computed from the file hosts:
+It emits each gem with its files and a **tier** computed from the file hosts:
 `no_data` (no files), `gdrive` (Google Drive knowledge — includes the extracted
 `drive_id`), or `other` (any other host, out of scope for v1).
+
+**If you can't run Python in this runtime, parse by hand instead** — the format is trivial.
+The export repeats this block per gem: `Name:` then `Instructions:` then an optional
+`Files:` list of `<a href="...">filename</a>` links. For each file, classify by the link
+host: `drive.google.com` → `gdrive` (pull the file ID from `id=<ID>` or `/file/d/<ID>/`);
+no files → `no_data`; anything else → `other`. You'll produce the same gem list either way.
 
 ### 4. Let the user select (point a)
 Show the gem list with tier badges and file counts. Ask **which gems** to convert. Don't
@@ -121,10 +128,29 @@ b. **Read knowledge and convert it (point c)** following `references/tier-handli
 c. **Transform** the persona instructions into an operational skill body (role line +
    imperative instructions + pointers to bundled knowledge), per `conversion-guide.md`.
 
-d. **Stage the skill folder** using `assets/skill-template/SKILL.md.tmpl`, into the
-   temporary staging area `converted-skills/<skill-name>/`. Place content where you decided
-   in step (b). Validate against `references/skill-format.md`. This local folder is staging
-   only — the deliverable is the Google Drive upload in step 7.
+d. **Stage the skill folder** in the temporary staging area `converted-skills/<skill-name>/`.
+   Place content where you decided in step (b). The `SKILL.md` MUST use this exact format —
+   YAML frontmatter, not `# Skill:` headings:
+
+   ```markdown
+   ---
+   name: <kebab-case-name>
+   description: <what it does + when to trigger — the routing key>
+   ---
+
+   # <Human Title>
+
+   <role line lifted from the gem persona>
+
+   ## Instructions
+   <imperative operational instructions>
+
+   ## Knowledge
+   <pointers to references/<name>.md files you created>
+   ```
+
+   Validate against `references/skill-format.md`. This local folder is staging only — the
+   deliverable is the Google Drive upload in step 7.
 
 ### 7. Create the skill in Google Drive and return the link (required)
 This step is mandatory — it is how the skill is actually delivered, and you do it yourself
@@ -155,5 +181,4 @@ it for evaluation and iteration — but this skill is fully standalone and does 
   naming rules, body transformation, worked example. **Read this before writing any skill.**
 - `references/tier-handling.md` — how to fetch/defer each knowledge-file tier.
 - `references/skill-format.md` — the portable skill folder format + validity check.
-- `assets/skill-template/SKILL.md.tmpl` — template for generated skills.
 - `scripts/parse_gems.py` — the deterministic Takeout parser.

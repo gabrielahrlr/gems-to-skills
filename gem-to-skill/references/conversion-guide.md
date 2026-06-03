@@ -58,7 +58,7 @@ Transform the persona-instructions into operational guidance:
    (e.g. "You act as the company's HR onboarding assistant.").
 2. **Convert the rest into imperative instructions** describing how to do the task.
 3. **Wire in knowledge** — if files were fetched, point to them explicitly
-   ("Base answers on `references/employee-onboarding-process.pdf`; if the answer isn't in
+   ("Base answers on `references/employee-onboarding-process.md`; if the answer isn't in
    it, say so.").
 4. **Explain the why** where it helps the model generalize, rather than rigid MUST/NEVER
    rules.
