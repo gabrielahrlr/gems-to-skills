@@ -36,18 +36,19 @@ user:
 
 ## Workflow
 
-> **Output goes to Google Cloud Storage — always.** This skill runs in environments like
-> the Gemini Enterprise App that have no durable local filesystem, so a local-only folder
-> would be lost. You MUST ask the user for a `gs://bucket/path/` destination up front
-> (step 1) and the finished skill MUST be bundled and uploaded there (step 7). The local
+> **Output goes to the user's Google Drive — always.** This skill runs in environments
+> like the Gemini Enterprise App that have no durable local filesystem, so a local-only
+> folder would be lost. The finished skill MUST be written into a folder in the user's
+> Google Drive and the **Drive link returned to the user** (step 7). The local
 > `converted-skills/<name>/` folder is only a temporary staging area for building files
 > before upload — never treat it as the final deliverable, and never silently default to
-> writing only a local directory.
+> writing only a local directory. Assume the agent already has the user's Google Drive
+> access (OAuth is done in Gemini Enterprise), so no credentials prompt is needed.
 
-### 1. Get the GCS destination (ask first, always)
-Before anything else, ask the user for the Google Cloud Storage destination where the
-finished skill(s) should be written, as a `gs://bucket/path/` URI. Do not proceed without
-it, and do not substitute a local directory. Keep this value for step 7.
+### 1. Confirm the Drive destination
+Decide where in the user's Google Drive the finished skill(s) should go. Default to
+creating a folder named `Converted Skills` (or reuse it if it exists); ask the user only if
+they want a different folder. Keep this destination for step 7.
 
 ### 2. Locate the export
 Ask the user for the path to their Takeout export, or scan for `gemini_gems_data.html`.
@@ -101,27 +102,25 @@ c. **Transform** the persona instructions into an operational skill body (role l
 d. **Stage the skill folder** using `assets/skill-template/SKILL.md.tmpl`, into the
    temporary staging area `converted-skills/<skill-name>/`. Place content where you decided
    in step (b). Validate against `references/skill-format.md`. This local folder is staging
-   only — the deliverable is the GCS upload in step 7.
+   only — the deliverable is the Google Drive upload in step 7.
 
-### 7. Bundle and upload to Google Cloud Storage (required)
-This step is mandatory — it is how the skill is actually delivered. Using the
-`gs://bucket/path/` destination collected in step 1, bundle and upload each finished skill
-(this runs in the agent's code sandbox):
+### 7. Upload to Google Drive and return the link (required)
+This step is mandatory — it is how the skill is actually delivered. Using the agent's native
+Google Drive access (OAuth is already done in Gemini Enterprise — no credentials prompt):
 
-```bash
-python3 scripts/bundle_to_gcs.py converted-skills/<skill-name> --dest gs://<bucket>/<path>/
-```
+1. Create (or reuse) the destination folder from step 1, then create a subfolder named
+   `<skill-name>` inside it.
+2. Upload every file from `converted-skills/<skill-name>/` into that subfolder, preserving
+   the structure (`SKILL.md` plus any `references/` and `assets/` files).
+3. **Return the shareable Google Drive link** to the `<skill-name>` folder to the user.
 
-The script zips the skill folder (keeping the folder as the archive's top-level entry),
-validates the `gs://` path, and uploads — trying the `google-cloud-storage` library first,
-then the `gcloud`/`gsutil` CLI. Use `--ext skill` to name the bundle `<name>.skill`. If the
-upload fails for lack of credentials, tell the user to authenticate the sandbox
-(Application Default Credentials or a service account) and retry — do not consider the skill
-delivered until the upload succeeds.
+Optionally, also upload a single zipped bundle named `<skill-name>.skill` if the user wants
+one downloadable artifact. Do not consider the skill delivered until the Drive upload
+succeeds and you have given the user the link.
 
 ### 8. Summarize and offer handoff
 Report per gem: converted cleanly, or needs follow-up (un-read Drive knowledge, `other`-tier
-files, unconfirmed tools), plus the final `gs://` location of each uploaded skill. If the
+files, unconfirmed tools), plus the **Google Drive link** for each uploaded skill. If the
 `skill-creator` skill is available in the environment, offer to hand off the new skills to
 it for evaluation and iteration — but this skill is fully standalone and does not require it.
 
@@ -133,4 +132,3 @@ it for evaluation and iteration — but this skill is fully standalone and does 
 - `references/skill-format.md` — the portable skill folder format + validity check.
 - `assets/skill-template/SKILL.md.tmpl` — template for generated skills.
 - `scripts/parse_gems.py` — the deterministic Takeout parser.
-- `scripts/bundle_to_gcs.py` — bundle a finished skill folder and upload it to GCS.
